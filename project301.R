@@ -29,7 +29,7 @@ main_data <- fracture %>%
 # removes the 3 columns used to make response var column
 main_data <- main_data %>% select(-OSQ010A, -OSQ010B, -OSQ010C)
 
-# convert columns A and C to factors
+# convert columns to factors (as categorical)
 main_data <- main_data %>% mutate(across(c(RIAGENDR, RIDRETH3, DMDEDUC2, DMDMARTZ, OSQ060,
                                            OSQ080, OSQ130, OSQ150, OSQ170, OSQ200), as.factor))
 

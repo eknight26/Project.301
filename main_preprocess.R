@@ -1,8 +1,3 @@
-# NHANES dataset 2017-2020
-
-rm(list = ls())
-options(scipen = 999)
-
 library(dplyr)
 library(tidyverse)
 library(haven)
@@ -14,8 +9,6 @@ library(purrr)
 library(readr)
 
 main_prepr <- read.csv('main_data.csv')
-
-# to do: clean data, check codes that are missing/refused convert to NA decide if retain or impute
 
 # summary for numerical variables
 # checking for values, min, max, unusual entries, IQR and NAs
@@ -167,6 +160,3 @@ main_final <- main_feat_selection %>%
 main_final$has_fracture <- as.factor(main_final$has_fracture)
 main_final$OSQ080 <- as.factor(main_final$OSQ080)
 main_final$RIDRETH3 <- as.factor(main_final$RIDRETH3)
-
-# Save to .csv file
-write_csv(main_final, 'main_final.csv')

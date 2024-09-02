@@ -7,7 +7,6 @@ library(janitor)
 library(pander)
 library(purrr)
 library(readr)
-library(GGally)
 
 main_prepr <- read.csv('main_data.csv')
 
@@ -32,6 +31,7 @@ main_prepr$DRQSDIET[main_prepr$DRQSDIET %in% c(7, 9)] <- NA
 main_prepr$DSDCOUNT[main_prepr$DSDCOUNT %in% c(77, 99)] <- NA
 main_prepr$DSD010[main_prepr$DSD010 %in% c(7, 9)] <- NA
 main_prepr$DSD010AN[main_prepr$DSD010AN %in% c(7, 9)] <- NA
+
 
 # alcohol
 main_prepr$ALQ130[main_prepr$ALQ130 %in% c(777, 999)] <- NA
@@ -72,10 +72,12 @@ main_prepr$PAD680[main_prepr$PAD680 %in% c(7777, 9999)] <- NA
 main_prepr$SMQ020[main_prepr$SMQ020 %in% c(7, 9)] <- NA
 main_prepr$SMQ040[main_prepr$SMQ040 %in% c(7, 9)] <- NA
 
+# define a dataset to revert back to for EDA
+main_for_eda <- main_prepr
 
 
 #### IMPUTE NAs
-
+# define a dataset for imputing
 main_to_impute <- main_prepr
 pander(summary(main_to_impute))
 
@@ -107,11 +109,9 @@ main_to_impute <- main_to_impute %>%
 main_to_impute <- main_to_impute %>%
   mutate(across(all_of(nominal_cols), ~ ifelse(is.na(.), as.numeric(names(sort(table(.), decreasing = TRUE)[1])), .)))
 
+
 # check for remaining NAs
 colSums(is.na(main_to_impute))
-
-# save to .csv
-write_csv(main_to_impute, 'main_complete.csv')
 
 
 
@@ -119,19 +119,29 @@ write_csv(main_to_impute, 'main_complete.csv')
 
 main_feat_selection <- main_to_impute
 
+# find highly correlated pairs and keep one that is less correlated with the rest
+library(caret)
+corr_matrix <- cor(main_feat_selection)
+highly_correlated <- findCorrelation(corr_matrix, cutoff = 0.8, names = TRUE, verbose = TRUE)
+redundant_cols <- names(main_feat_selection[, highly_correlated]) # 34 columns to remove
+
 library(randomForest)
 
+# main_dropped_na <- drop_na(main_to_impute)
+# there will only be 91 observations when NAs are dropped
+
 # fit the Random Forest model
-# exclude the SEQN from the predictors
+# Exclude the SEQN column from the predictors
 rf_model <- randomForest(as.factor(has_fracture) ~ . - SEQN, data = main_feat_selection, importance = TRUE)
 
 # extract feature importance
 feature_importance <- importance(rf_model)
+important_features <- names(sort(feature_importance, decreasing = TRUE))
+
 df_feature_importance <- as.data.frame(feature_importance)
-# create column for feature names
 df_feature_importance$Feature <- rownames(df_feature_importance)  
 
-# plot feature importance, using MeanDecreaseGini metric for selecting important features
+# plot feature importance
 ggplot(df_feature_importance, aes(x = reorder(Feature, MeanDecreaseGini), y = MeanDecreaseGini)) +
   geom_bar(stat = "identity") +
   coord_flip() +
@@ -139,18 +149,22 @@ ggplot(df_feature_importance, aes(x = reorder(Feature, MeanDecreaseGini), y = Me
   ylab("Mean Decrease in Gini") +
   ggtitle("Feature Importance from Random Forest")
 
-#### select top 20% of important features to reduce feature space
-num_features_to_keep <- ceiling(0.20 * nrow(df_feature_importance))
+#### select top 15% of important features to reduce feature space
+num_features_to_keep <- ceiling(0.15 * nrow(df_feature_importance))
 
-# get the top 20% of features by MDG ==== 26 features
+# get the top 15% of features by MDG ==== 20 features
 top_features <- df_feature_importance[order(df_feature_importance$MeanDecreaseGini, decreasing = TRUE)[1:num_features_to_keep], ]
 
 
-#### create new data frame with top features ####
-main_final <- main_feat_selection %>%
-  select(all_of(c(top_features$Feature, 'has_fracture')))
+#### create new data frame with top features (reverting back to dataframe prior to imputing) ####
+# also moving class label column at the rightmost column
+main_final <- main_for_eda %>%
+  select(all_of(top_features$Feature))
+main_final$has_fracture <- as.factor(main_prepr$has_fracture)
 
 # convert columns to factors as categorical variables
-main_final$has_fracture <- as.factor(main_final$has_fracture)
 main_final$OSQ080 <- as.factor(main_final$OSQ080)
 main_final$RIDRETH3 <- as.factor(main_final$RIDRETH3)
+
+# save to .csv file
+write_csv(main_final, 'main_final.csv')

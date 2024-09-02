@@ -127,7 +127,6 @@ rf_model <- randomForest(as.factor(has_fracture) ~ . - SEQN, data = main_feat_se
 
 # extract feature importance
 feature_importance <- importance(rf_model)
-important_features <- names(sort(feature_importance, decreasing = TRUE))
 df_feature_importance <- as.data.frame(feature_importance)
 # create column for feature names
 df_feature_importance$Feature <- rownames(df_feature_importance)  
@@ -140,10 +139,10 @@ ggplot(df_feature_importance, aes(x = reorder(Feature, MeanDecreaseGini), y = Me
   ylab("Mean Decrease in Gini") +
   ggtitle("Feature Importance from Random Forest")
 
-#### select top 25% of important features to reduce feature space
-num_features_to_keep <- ceiling(0.25 * nrow(df_feature_importance))
+#### select top 20% of important features to reduce feature space
+num_features_to_keep <- ceiling(0.20 * nrow(df_feature_importance))
 
-# get the top 25% of features by MDG ==== 26 features
+# get the top 20% of features by MDG ==== 26 features
 top_features <- df_feature_importance[order(df_feature_importance$MeanDecreaseGini, decreasing = TRUE)[1:num_features_to_keep], ]
 
 

@@ -1,7 +1,7 @@
 # NHANES dataset 2017-2020
-# Predictors of fractures
 
-rm(list= ls())
+rm(list = ls())
+options(scipen = 999)
 
 library(dplyr)
 library(tidyverse)
@@ -13,77 +13,56 @@ library(pander)
 library(purrr)
 library(readr)
 library(naniar)
+library(ggfortify)
+library(knitr)
 
 #### demographics
 demo <- read_xpt("P_DEMO.XPT")
 demo <- demo %>%
-  select(SEQN, RIDAGEYR, RIAGENDR, RIDRETH3, DMDEDUC2, DMDMARTZ, INDFMPIR)
+  select(SEQN, RIDAGEYR, RIAGENDR, RIDRETH3, INDFMPIR)
 
-#### osteoporosis
+#### osteoporosis, create target variable column hx_fracture where a respondent has had a fracture
+#### either on their hip, wrist or spine in the part and drop those original columns
 osteo <- read_xpt("P_OSQ.XPT") %>%
-  select(SEQN, OSQ060, OSQ080, OSQ130, OSQ150, OSQ170, OSQ200, OSQ010A, OSQ010B, OSQ010C)
+  select(SEQN, OSQ060, OSQ080, OSQ130, OSQ150, OSQ170, OSQ200, OSQ010A, OSQ010B, OSQ010C) %>%
+  mutate(hx_fracture = if_else(rowSums(across(c('OSQ010A', 'OSQ010B', 'OSQ010C')) == 1) > 0, 1, 0))
 
-#### main_data
 # merge demographic data and osteoporosis data (where fracture as response variable is located)
 fracture <- demo %>%
   inner_join(osteo, by = join_by(SEQN))
-
-# creates new column as response variable (ever had fractures - either hip, wrist or spine)
-main_data <- fracture %>% 
-  mutate(has_fracture = if_else(rowSums(across(c('OSQ010A', 'OSQ010B', 'OSQ010C')) == 1) > 0, 1, 2))
-
-# removes the 3 columns used to make response var column
-main_data <- main_data %>% select(-OSQ010A, -OSQ010B, -OSQ010C)
-
-
-#### dietary
-
-nutr_tot_intake1 <- read_xpt('P_DR1TOT.XPT')
-nutr_tot_intake1 <- nutr_tot_intake1 %>% 
-  filter(DR1DRSTZ == 1) %>%   # filter only reliable and data that meet minimum criteria
-  select(SEQN, DRQSDIET, DR1TKCAL, DR1TPROT, DR1TCARB, DR1TSUGR, DR1TFIBE, DR1TTFAT,
-         DR1TSFAT, DR1TMFAT, DR1TPFAT, DR1TCHOL, DR1TATOC, DR1TRET, DR1TVARA, 
-         DR1TACAR, DR1TBCAR, DR1TCRYP, DR1TLYCO, DR1TLZ, DR1TVB1, DR1TVB2,
-         DR1TNIAC, DR1TVB6, DR1TFOLA, DR1TFA, DR1TFDFE, DR1TCHL, DR1TVB12, 
-         DR1TVD, DR1TVC, DR1TVK, DR1TCALC, DR1TPHOS, DR1TMAGN, DR1TIRON, DR1TZINC,
-         DR1TCOPP, DR1TSODI, DR1TPOTA, DR1TSELE, DR1TCAFF, DR1TTHEO, DR1TALCO)
-
-nutr_supp <- read_xpt('P_DSQTOT.XPT') %>%
-  select(SEQN, DSDCOUNT, DSD010, DSD010AN, DSQTVB1, DSQTVB2, DSQTNIAC, DSQTVB6, DSQTFA,
-         DSQTFDFE, DSQTCHL, DSQTVB12, DSQTVC, DSQTVK, DSQTVD, DSQTCALC, DSQTPHOS,
-         DSQTMAGN, DSQTIRON, DSQTZINC, DSQTCOPP, DSQTSODI, DSQTPOTA, DSQTSELE,
-         DSQTCAFF, DSQTIODI)
-
-# join both dietary datasets
-dietary <- nutr_tot_intake1 %>%
-  inner_join(nutr_supp, by = join_by(SEQN))
-
+  
+# removes the 3 columns used to make target variable
+main_data <- fracture %>% select(-OSQ010A, -OSQ010B, -OSQ010C)
 
 #### measurements
-bp <- read_xpt('P_BPXO.XPT')
-bmx <- read_xpt('P_BMX.XPT')
-dexa_spine <- read_xpt('P_DXXSPN.XPT')
-dexa_femur <- read_xpt('P_DXXFEM.XPT')
+bp <- read_xpt('P_BPXO.XPT')            # blood pressure readings
+bmx <- read_xpt('P_BMX.XPT')            # to obtain BMI
+dexa_spine <- read_xpt('P_DXXSPN.XPT')  # spine BMD   
+dexa_femur <- read_xpt('P_DXXFEM.XPT')  # femur BMD
 
-# blood pressure (systolic BP (mean))
+# blood pressure (systolic BP (mean)); created a new column for systolic mean BP
 bp <- bp %>% 
   mutate(BPXMSYS = rowMeans(select(., BPXOSY1, BPXOSY2, BPXOSY3))) %>%
   select(SEQN, BPXMSYS)
 
-# body measurements (BMI)
+# body measurements (BMI), valid data filtered (coded as 1)
 bmx <- bmx %>%
   filter(BMDSTATS == 1) %>%
   select(SEQN, BMXBMI)
 
-# dexa femur
+# dexa femur, valid data filtered (coded as 1); only selected BMD columns
 dexa_femur <- dexa_femur %>%
   filter(DXAFMRST == 1) %>%
-  select(-c(DXAFMRST, DXXFMBCC))
+  select(c(SEQN, DXXOFBMD, DXXNKBMD, DXXTRBMD, DXXINBMD, DXXWDBMD))
 
-# dexa spine
+# dexa spine, completed scan filtered (coded as 1); 
+# The main reasons for completed, but invalid (coded as 2), spine scans were an insufficient scan area or partial scan, 
+# degenerative disease/severe scoliosis, and sclerotic spine/spinal fusion/laminectomy (these were included as these are commonly found in older adults and
+# including this is more representative of the population)
+# only selected BMD columns
 dexa_spine <- dexa_spine %>%
-  filter(DXASPNST == 1) %>%
-  select(-c(DXASPNST, DXXOSBCC, DXXL1BCC, DXXL2BCC, DXXL3BCC, DXXL4BCC))
+  filter(DXASPNST == 1 | DXASPNST == 2) %>%
+  select(c(SEQN, DXXOSBMD, DXXL1BMD, DXXL2BMD, DXXL3BMD, DXXL4BMD))
 
 
 #### blood tests
@@ -92,7 +71,7 @@ folate <- read_xpt('P_FOLFMS.XPT')
 folate <- folate %>%
   select(SEQN, LBDFOTSI)
 
-# standard biochemistry blood tests (ALP, phosphate, calcium)
+# standard biochemistry blood tests (ALP, phosphate, calcium only)
 biochem <- read_xpt('P_BIOPRO.XPT') %>% 
   select(SEQN, LBXSAPSI, LBDSPHSI, LBDSCASI)
 
@@ -102,19 +81,20 @@ metals <- metals %>%
   select(SEQN, LBDBPBSI, LBDBCDSI, LBDTHGSI, LBDBSESI, LBDBMNSI)
 
 
-#### alcohol use, blood_pressure, diet behaviour and milk consumption
+# alcohol use, if ever drank 1, else 0; if drinking, ave number of drinks per day in the last 12 mos
 alc_intake <- read_xpt('P_ALQ.XPT') %>%
-  select(SEQN, ALQ111, ALQ130)
+  select(SEQN, ALQ111, ALQ130) %>%
+  mutate(alcohol_consumed = ifelse(ALQ111 == 1, ALQ130, 0)) %>%
+  select(SEQN, alcohol_consumed)
 
+# has high blood pressure
 bpressure <- read_xpt('P_BPQ.XPT') 
 bpressure <- bpressure %>%
   select(SEQN, BPQ020, BPQ080)
-  
+
+# has diabetes
 diabetes <- read_xpt('P_DIQ.XPT') %>%
   select(SEQN, DIQ010)
-
-diet_behave <- read_xpt('P_DBQ.XPT') %>%
-  select(SEQN, DBQ700, DBQ197)
 
 
 #### various medical conditions (asthma, heart, diabetes, lung, liver, etc)
@@ -122,42 +102,41 @@ med_cond <- read_xpt('P_MCQ.XPT') %>%
   select(SEQN, MCQ160A, MCQ160B, MCQ160C, MCQ160E, MCQ160F, MCQ160L, MCQ160M, MCQ160P, MCQ080, MCQ010, MCQ220)
 
 
-#### physical activity
+#### physical activity amount, represents sedentary lifestyle (amount of time spent sitting per day in minutes)
 activity <- read_xpt("P_PAQ.XPT") %>%
-  select(SEQN, PAQ605, PAQ620, PAQ635, PAQ650, PAQ665, PAD680)
+  select(SEQN, PAD680)
 
 
-#### smoking
-smoking <- read_xpt("P_SMQ.XPT") %>%
-  select(SEQN, SMQ020, SMQ040)
+#### smoking, if smoked in the last 5 days 1, else 0; if yes, number of cigs smoked per day in the last 5 days
+smoking <- read_xpt("P_SMQRTU.XPT") %>%
+  select(SEQN, SMQ681, SMQ720) %>%
+  mutate(cigarettes_smoked = ifelse(SMQ681 == 1, SMQ720, 0)) %>%
+  select(SEQN, cigarettes_smoked)
 
 
 # merge all datasets to main data, 'left_join' to maintain main set structure
-# a large reduction in number of observations was lost when using inner_join
 main_data <- main_data %>%
   left_join(dexa_femur, by = join_by(SEQN)) %>%
   left_join(dexa_spine, by = join_by(SEQN)) %>%
   left_join(bmx, by = join_by(SEQN)) %>%
   left_join(bp, by = join_by(SEQN)) %>%
-  left_join(dietary, by = join_by(SEQN)) %>%
   left_join(folate, by = join_by(SEQN)) %>%
   left_join(biochem, by = join_by(SEQN)) %>%
   left_join(metals, by = join_by(SEQN)) %>%
   left_join(alc_intake, by = join_by(SEQN)) %>%
   left_join(bpressure, by = join_by(SEQN)) %>%
   left_join(diabetes, by = join_by(SEQN)) %>%
-  left_join(diet_behave, by = join_by(SEQN)) %>%
   left_join(med_cond, by = join_by(SEQN)) %>%
   left_join(activity, by = join_by(SEQN)) %>%
   left_join(smoking, by = join_by(SEQN))
 
-# check dimension/shape of dataset
+# check dimension/shape of dataset; 4987 instances, 50 columns
 dim(main_data)
 
 # all numeric, some are categorical encoded as numbers (to convert as factor)
 str(main_data)
 
-# check numeric and categorical columns
+# check numeric and categorical columns, all numeric
 sapply(main_data, class)
 
 # summary for numerical variables
@@ -173,8 +152,8 @@ head(main_data)
 # get column names
 names(main_data)
 
-# check class label for imbalance
-pander(table(main_data$has_fracture))
+# check class label for imbalance; 0 = 4260, 1 = 726
+pander(table(main_data$hx_fracture))
 
 
 #### MISSING VALUES
@@ -194,24 +173,48 @@ na_proportion <- data.frame(
 # sort descending
 na_proportion <- na_proportion[order(na_proportion$Percent_Missing, decreasing = TRUE), ]
 
-# Create a bar plot of missing values
-ggplot(na_proportion, aes(x = reorder(Feature, Percent_Missing), y = Percent_Missing)) +
-  geom_bar(stat = "identity", fill = "lightblue") +
+# save as .csv
+write.csv(na_proportion, "na_proportion.csv", row.names = FALSE)
+
+
+# filter the data to only include features with missing values
+na_proportion_filtered <- na_proportion[na_proportion$Percent_Missing > 0, ]
+
+# create a bar plot of missing values
+ggplot(na_proportion_filtered, aes(x = reorder(Feature, Percent_Missing), y = Percent_Missing)) +
+  geom_bar(stat = "identity", fill = "grey50") +          # Greyscale fill for the bars
   coord_flip() +
-  labs(x = "Column", y = "Missing Values (%)",
-    title = "Percentage of Missing Values by Feature") +
-  theme_minimal()
+  labs(x = "Variable Names", y = "Missing Values (%)",
+       title = "") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),  # Customize the title
+    axis.title.x = element_text(size = 12),              # Customize the x-axis label
+    axis.title.y = element_text(size = 12),              # Customize the y-axis label
+    axis.text = element_text(color = "black")            # Keep axis text black for visibility
+  )
 
-# remove features over 60% missing data
-na_proportion_reduced <- as.data.frame(na_proportion[na_proportion$Percent_Missing > 60,])
-columns_to_drop <- na_proportion_reduced$Feature
 
-# update dataset
-main_data <- main_data %>% 
-  select(-all_of(columns_to_drop))
-
-# there is also one NA entry on 'has_fracture' column, will remove this instance
-main_data <- main_data %>% drop_na(has_fracture)
+# there is also one NA entry on 'hx_fracture' column, will remove this instance
+main_data <- main_data %>% drop_na(hx_fracture)
 
 # a row with NA in target column is now removed
-sum(is.na(main_data$has_fracture))
+sum(is.na(main_data$hx_fracture))
+
+main_data$hx_fracture <- as.factor(main_data$hx_fracture)
+
+# save raw data as .csv
+write_csv(main_data, 'main_data.csv')
+
+
+###### MERGING with t_score dataset for BMD
+
+# load data
+dexa_t_score <- read_csv('dexa_t_scores.csv', show_col_types = FALSE)
+
+# merge to main dataset
+main_data <- main_data %>%
+  left_join(dexa_t_score, by = join_by(SEQN))
+
+# save another copy
+write_csv(main_data, 'main_data_t_score.csv')
